@@ -1,0 +1,144 @@
+generator client {
+  provider      = "prisma-client-js"
+  // Готовый билд может запускаться на любом хостинге (Plesk: CentOS/AlmaLinux/
+  // Ubuntu), поэтому клиент собирается с движками под все популярные ОС.
+  // На проектную сборку/скорость это не влияет, только на объём node_modules.
+  binaryTargets = ["native", "debian-openssl-1.1.x", "rhel-openssl-1.0.x", "rhel-openssl-1.1.x", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Заявки с сайта TBS Inform (обратный звонок, вопросы по товарам)
+model Lead {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String
+  message   String?
+  product   String?
+  done      Boolean  @default(false) // заявка обработана
+  createdAt DateTime @default(now())
+}
+
+// Отзывы о товарах
+model Review {
+  id          String   @id @default(cuid())
+  productSlug String
+  name        String
+  rating      Int // 1..5
+  text        String
+  hidden      Boolean  @default(false) // модерация: скрыт из публичного показа
+  createdAt   DateTime @default(now())
+
+  @@index([productSlug])
+}
+
+// Просмотры страниц сайта (статистика посещаемости в админ-панели)
+model PageView {
+  id        String   @id @default(cuid())
+  path      String // путь страницы, например /product/kenwood-nx-5300e
+  lang      String? // ru | uz | en
+  device    String? // mobile | tablet | desktop
+  ref       String? // источник (host реферера)
+  anon      String? // анонимный id посетителя (localStorage)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([path])
+}
+
+// Правки товаров из админ-панели: накладываются на эталон
+// src/data/products.base.json, результат — src/data/products.json
+model ProductOverride {
+  slug       String   @id
+  name       String?
+  short      String?
+  brand      String? // бренд нового товара (обязателен, если товар не из эталона)
+  cats       String? // JSON-массив слагов категорий нового товара
+  ru         String? // абзацы описания, разделённые \n\n
+  uz         String?
+  en         String?
+  img        String? // главное фото (карточка)
+  hover      String? // второе фото (эффект при наведении)
+  gallery    String? // JSON-массив путей галереи ["...", ...]
+  video      String? // YouTube-ID видеообзора ("" — скрыть эталонное видео)
+  videoTitle String? // JSON-подпись видео {"ru","uz","en"}
+  hidden     Boolean  @default(false) // скрыть товар из каталога
+  updatedAt  DateTime @updatedAt
+}
+
+// Характеристики товаров, отредактированные в админ-панели. Накладываются на
+// эталонные таблицы src/lib/shop/product-specs.ts (таблица «Характеристики» на
+// карточке) и теги фасетных фильтров src/lib/shop/filters.ts (фасеты каталога).
+// Результат перегенерации — src/data/specs.json (только переопределённые товары).
+model SpecOverride {
+  slug      String   @id
+  table     String?  // JSON SpecGroup[] — группы с парами label/value
+  facets    String?  // JSON {"<facetId>": ["<valueId>", …]} — теги фильтров каталога
+  updatedAt DateTime @updatedAt
+}
+
+// Правки содержимого сайта из админ-панели: шаблон (слайдер, контакты,
+// логотипы клиентов) и другие разделы (о компании, услуги, статьи, FAQ,
+// словарь, новинки). key = имя секции, data = JSON секции.
+// Результат перегенерации — src/data/site.json (только переопределённые секции).
+model SiteOverride {
+  key       String   @id
+  data      String
+  updatedAt DateTime @updatedAt
+}
+
+// Настройки панели: key-value (admin_password, telegram). Значение — JSON.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// SEO meta-теги страниц, редактируемые в админ-панели: title, description,
+// keywords для любого пути (/ , /vse-radiostancii, /product/<slug> …).
+// Результат перегенерации — src/data/seo.json (только переопределённые пути).
+model SeoOverride {
+  path        String   @id // путь страницы, например /product/kenwood-nx-5300e
+  title       String?
+  description String?
+  keywords    String?
+  updatedAt   DateTime @updatedAt
+}
+
+// Поисковые запросы посетителей (живой поиск в шапке сайта).
+// Показываются в админке: «Обзор» → «Популярные поисковые запросы».
+model SearchLog {
+  id        String   @id @default(cuid())
+  query     String // нормализованный текст запроса (lowercase, trimmed)
+  lang      String?
+  anon      String? // анонимный id посетителя
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([query])
+}
+
+// Фактическая скорость (RUM): Core Web Vitals, измеренные в браузере у
+// реальных посетителей. Один beacon на просмотр страницы (отправляется при
+// уходе со страницы), p75 по метрикам считает /api/sluzhebnoe/stats и
+// показывает в админке — то же, чем Google судит сайт в PageSpeed,
+// но на собственных данных сайта (у tbs.uz пока нет CrUX-статистики).
+model WebVitals {
+  id        String   @id @default(cuid())
+  path      String // путь страницы, например /product/kenwood-nx-5300e
+  device    String? // mobile | tablet | desktop
+  lang      String? // ru | uz | en
+  anon      String? // анонимный id посетителя (localStorage)
+  ttfb      Int?     // Time to First Byte, мс
+  fcp       Int?     // First Contentful Paint, мс
+  lcp       Int?     // Largest Contentful Paint, мс
+  inp       Int?     // Interaction to Next Paint, мс (null — не было касаний)
+  cls       Float?   // Cumulative Layout Shift (сумма без ввода пользователя)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([path])
+}
